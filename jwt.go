@@ -80,6 +80,46 @@ func (t *Token) SigningString() (string, error) {
 	return strings.Join(parts, "."), nil
 }
 
+// ParseNoValidation parse and return a token.
+// If everything is kosher, err will be nil
+func ParseNoValidation(tokenString string) (*Token, error) {
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, &ValidationError{err: "token contains an invalid number of segments", Errors: ValidationErrorMalformed}
+	}
+
+	var err error
+	token := &Token{Raw: tokenString}
+	// parse Header
+	var headerBytes []byte
+	if headerBytes, err = DecodeSegment(parts[0]); err != nil {
+		return token, &ValidationError{err: err.Error(), Errors: ValidationErrorMalformed}
+	}
+	if err = json.Unmarshal(headerBytes, &token.Header); err != nil {
+		return token, &ValidationError{err: err.Error(), Errors: ValidationErrorMalformed}
+	}
+
+	// parse Claims
+	var claimBytes []byte
+	if claimBytes, err = DecodeSegment(parts[1]); err != nil {
+		return token, &ValidationError{err: err.Error(), Errors: ValidationErrorMalformed}
+	}
+	if err = json.Unmarshal(claimBytes, &token.Claims); err != nil {
+		return token, &ValidationError{err: err.Error(), Errors: ValidationErrorMalformed}
+	}
+
+	// Lookup signature method
+	if method, ok := token.Header["alg"].(string); ok {
+		if token.Method = GetSigningMethod(method); token.Method == nil {
+			return token, &ValidationError{err: "signing method (alg) is unavailable.", Errors: ValidationErrorUnverifiable}
+		}
+	} else {
+		return token, &ValidationError{err: "signing method (alg) is unspecified.", Errors: ValidationErrorUnverifiable}
+	}
+
+	return token, nil
+}
+
 // Parse, validate, and return a token.
 // keyFunc will receive the parsed token and should return the key for validating.
 // If everything is kosher, err will be nil
